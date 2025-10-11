@@ -7,8 +7,8 @@ pipeline {
   }
 
   environment {
-    SONAR_URL    = 'http://107.23.168.178:9000'
-    DOCKER_IMAGE = "zoum444/ultimate-cicd:${BUILD_NUMBER}"
+    SONAR_URL     = 'http://107.23.168.178:9000'
+    DOCKER_IMAGE  = "zoum444/ultimate-cicd:${BUILD_NUMBER}"
     REGISTRY_CRED = 'docker-cred'
   }
 
@@ -18,18 +18,23 @@ pipeline {
         sh '''
           set -eux
           apt-get update
-          apt-get install -y --no-install-recommends docker.io ca-certificates
-          docker --version || true
-          java -version
-          mvn -v
+          apt-get install -y --no-install-recommends docker.io ca-certificates git
         '''
       }
     }
 
     stage('Checkout') {
       steps {
-        sh 'echo passed'
-        // git branch: 'main', url: 'https://github.com/zoumana001/Jenkins-Zero-To-Hero.git'
+        // actually fetch the repo that contains your manifests
+        checkout scm
+        sh '''
+          set -eux
+          git --version
+          # mark workspace as safe (git in containers can complain)
+          git config --global --add safe.directory "$PWD"
+          git status
+          ls -la
+        '''
       }
     }
 
@@ -67,7 +72,7 @@ pipeline {
             docker build -t ${DOCKER_IMAGE} .
           '''
           def img = docker.image("${DOCKER_IMAGE}")
-          docker.withRegistry('https://index.docker.io/v1/', REGISTRY_CRED) {
+          docker.withRegistry('', REGISTRY_CRED) {
             img.push()
           }
         }
@@ -85,11 +90,18 @@ pipeline {
             set -eux
             git config user.email "zoumanaouattara133@gmail.com"
             git config user.name "Zoumana Ouattara"
+            git config --global --add safe.directory "$PWD"
+
+            # make sure 'origin' is writable with token
+            git remote set-url origin "https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git"
+
+            # update the manifest image tag
             sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" \
               java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+
             git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || true
-            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "Nothing to commit"
+            git push origin HEAD:main
           '''
         }
       }
